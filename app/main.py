@@ -1,6 +1,6 @@
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, HTTPException, APIRouter
 from sqlalchemy.orm import Session
-from sqlalchemy.sql import text  # Add this import
+from sqlalchemy.sql import text
 from .database import SessionLocal, init_db
 from .redis_client import get_redis
 from .elasticsearch_client import get_elasticsearch
@@ -10,11 +10,20 @@ from .crud import (
     get_all_employees, get_employee_by_id, create_employee, update_employee,
     soft_delete_employee, hard_delete_employee, restore_employee, get_all_soft_deleted_employees
 )
-from .schemas import DepartmentCreate, DepartmentUpdate, EmployeeCreate, EmployeeUpdate
+from .schemas import DepartmentCreate, DepartmentUpdate, EmployeeCreate, EmployeeUpdate, Department, Employee
 import redis
-from elasticsearch import Elasticsearch
+from pydantic import BaseModel
+from typing import Any
 
 app = FastAPI()
+
+# Success response model
+class SuccessResponse(BaseModel):
+    message: str
+    data: Any = None
+
+# API Router with /api/v1 prefix
+router = APIRouter(prefix="/api/v1")
 
 # Dependency
 def get_db():
@@ -44,12 +53,11 @@ async def startup_event():
     
     try:
         db = SessionLocal()
-        db.execute(text("SELECT 1"))  # Use text() for raw SQL
+        db.execute(text("SELECT 1"))
         app.state.db_status = "PostgreSQL connection successful"
     finally:
         db.close()
 
-# Rest of the code remains unchanged...
 @app.get("/health")
 async def health_check():
     return {
@@ -59,67 +67,86 @@ async def health_check():
     }
 
 # Department endpoints
-@app.get("/departments/")
+@router.get("/departments/", response_model=list[Department])
 async def read_departments(db: Session = Depends(get_db)):
     return get_all_departments(db)
 
-@app.get("/departments/{department_id}")
+@router.get("/departments/{department_id}", response_model=Department)
 async def read_department(department_id: int, db: Session = Depends(get_db)):
-    return get_department_by_id(db, department_id)
+    department = get_department_by_id(db, department_id)
+    if not department:
+        raise HTTPException(status_code=404, detail="Department not found")
+    return department
 
-@app.post("/departments/")
+@router.post("/departments/", response_model=SuccessResponse)
 async def create_dept(department: DepartmentCreate, db: Session = Depends(get_db)):
-    return create_department(db, department)
+    db_department = create_department(db, department)
+    return {"message": "Department created successfully", "data": db_department}
 
-@app.put("/departments/{department_id}")
+@router.put("/departments/{department_id}", response_model=SuccessResponse)
 async def update_dept(department_id: int, department: DepartmentUpdate, db: Session = Depends(get_db)):
-    return update_department(db, department_id, department)
+    db_department = update_department(db, department_id, department)
+    return {"message": "Department updated successfully", "data": db_department}
 
-@app.delete("/departments/{department_id}/soft")
+@router.delete("/departments/{department_id}/soft", response_model=SuccessResponse)
 async def soft_delete_dept(department_id: int, db: Session = Depends(get_db)):
-    return soft_delete_department(db, department_id)
+    soft_delete_department(db, department_id)
+    return {"message": "Department soft deleted successfully"}
 
-@app.delete("/departments/{department_id}/hard")
+@router.delete("/departments/{department_id}/hard", response_model=SuccessResponse)
 async def hard_delete_dept(department_id: int, db: Session = Depends(get_db)):
-    return hard_delete_department(db, department_id)
+    hard_delete_department(db, department_id)
+    return {"message": "Department permanently deleted successfully"}
 
-@app.post("/departments/{department_id}/restore")
+@router.post("/departments/{department_id}/restore", response_model=SuccessResponse)
 async def restore_dept(department_id: int, db: Session = Depends(get_db)):
-    return restore_department(db, department_id)
+    restore_department(db, department_id)
+    return {"message": "Department restored successfully"}
 
-@app.get("/departments/soft-deleted")
+@router.get("/departments/soft-deleted", response_model=list[Department])
 async def get_soft_deleted_depts(db: Session = Depends(get_db)):
     return get_all_soft_deleted_departments(db)
 
 # Employee endpoints
-@app.get("/employees/")
+@router.get("/employees/", response_model=list[Employee])
 async def read_employees(db: Session = Depends(get_db)):
     return get_all_employees(db)
 
-@app.get("/employees/{employee_id}")
+@router.get("/employees/{employee_id}", response_model=Employee)
 async def read_employee(employee_id: int, db: Session = Depends(get_db)):
-    return get_employee_by_id(db, employee_id)
+    employee = get_employee_by_id(db, employee_id)
+    if not employee:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    return employee
 
-@app.post("/employees/")
+@router.post("/employees/", response_model=SuccessResponse)
 async def create_emp(employee: EmployeeCreate, db: Session = Depends(get_db)):
-    return create_employee(db, employee)
+    db_employee = create_employee(db, employee)
+    return {"message": "Employee created successfully", "data": db_employee}
 
-@app.put("/employees/{employee_id}")
+@router.put("/employees/{employee_id}", response_model=SuccessResponse)
 async def update_emp(employee_id: int, employee: EmployeeUpdate, db: Session = Depends(get_db)):
-    return update_employee(db, employee_id, employee)
+    db_employee = update_employee(db, employee_id, employee)
+    return {"message": "Employee updated successfully", "data": db_employee}
 
-@app.delete("/employees/{employee_id}/soft")
+@router.delete("/employees/{employee_id}/soft", response_model=SuccessResponse)
 async def soft_delete_emp(employee_id: int, db: Session = Depends(get_db)):
-    return soft_delete_employee(db, employee_id)
+    soft_delete_employee(db, employee_id)
+    return {"message": "Employee soft deleted successfully"}
 
-@app.delete("/employees/{employee_id}/hard")
+@router.delete("/employees/{employee_id}/hard", response_model=SuccessResponse)
 async def hard_delete_emp(employee_id: int, db: Session = Depends(get_db)):
-    return hard_delete_employee(db, employee_id)
+    hard_delete_employee(db, employee_id)
+    return {"message": "Employee permanently deleted successfully"}
 
-@app.post("/employees/{employee_id}/restore")
+@router.post("/employees/{employee_id}/restore", response_model=SuccessResponse)
 async def restore_emp(employee_id: int, db: Session = Depends(get_db)):
-    return restore_employee(db, employee_id)
+    restore_employee(db, employee_id)
+    return {"message": "Employee restored successfully"}
 
-@app.get("/employees/soft-deleted")
+@router.get("/employees/soft-deleted", response_model=list[Employee])
 async def get_soft_deleted_emps(db: Session = Depends(get_db)):
     return get_all_soft_deleted_employees(db)
+
+# Include the router in the app
+app.include_router(router)
